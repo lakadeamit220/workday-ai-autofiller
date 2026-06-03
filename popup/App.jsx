@@ -69,7 +69,7 @@ function App() {
   return (
     <div className="flex flex-col h-full text-slate-800 bg-slate-50">
       <header className="p-4 border-b border-slate-200 bg-white flex items-center gap-3 shadow-sm">
-        <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-xl shadow-sm">💼</div>
+        <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700 font-bold shadow-sm">W</div>
         <h1 className="text-lg font-semibold text-slate-800 tracking-tight">Workday AI Autofiller</h1>
       </header>
       
