@@ -54,12 +54,12 @@ async function callAI(messages, apiKey, provider, retries = 3) {
       let url, headers, body;
 
       if (provider === 'gemini') {
-        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
         headers = { 'Content-Type': 'application/json' };
-        
+
         const systemPrompt = messages.find(m => m.role === 'system')?.content || '';
         const userPrompt = messages.find(m => m.role === 'user')?.content || '';
-        
+
         body = JSON.stringify({
           system_instruction: { parts: { text: systemPrompt } },
           contents: [{ role: "user", parts: [{ text: userPrompt }] }],
@@ -72,7 +72,7 @@ async function callAI(messages, apiKey, provider, retries = 3) {
           'Authorization': `Bearer ${apiKey}`
         };
         body = JSON.stringify({
-          model: 'llama3-70b-8192',
+          model: 'llama-3.3-70b-versatile',
           messages,
           response_format: { type: "json_object" }
         });
@@ -91,7 +91,7 @@ async function callAI(messages, apiKey, provider, retries = 3) {
       }
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -108,13 +108,13 @@ async function callAI(messages, apiKey, provider, retries = 3) {
 
       const data = await response.json();
       let content = "";
-      
+
       if (provider === 'gemini') {
         content = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
       } else {
         content = data.choices?.[0]?.message?.content || '{}';
       }
-      
+
       return JSON.parse(content);
     } catch (e) {
       console.warn(`AI request failed (attempt ${i + 1}/${retries}):`, e);
@@ -124,7 +124,10 @@ async function callAI(messages, apiKey, provider, retries = 3) {
   }
 }
 
+// ── Message Listener ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+
+  // ── Parse Resume ────────────────────────────────────────────────────────────
   if (request.action === "parseResume") {
     (async () => {
       try {
@@ -147,49 +150,58 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: false, error: error.message });
       }
     })();
-    return true; 
+    return true;
   }
 
+  // ── Map Fields ──────────────────────────────────────────────────────────────
   if (request.action === "mapFields") {
-    chrome.storage.local.get(['openaiApiKey']).then(async (result) => {
+    (async () => {
       try {
-      const { openaiApiKey, aiProvider } = await chrome.storage.local.get(['openaiApiKey', 'aiProvider']);
-      if (!openaiApiKey) {
-        sendResponse({ success: false, error: "API key not found." });
-        return;
-      }
-      const provider = aiProvider || 'gemini';
+        const { openaiApiKey, aiProvider } = await chrome.storage.local.get(['openaiApiKey', 'aiProvider']);
+        if (!openaiApiKey) {
+          sendResponse({ success: false, error: "API key not found." });
+          return;
+        }
+        const provider = aiProvider || 'gemini';
 
-      const messages = [
-        { role: "system", content: FIELD_MAP_PROMPT },
-        { role: "user", content: `RESUME DATA:\n${JSON.stringify(request.resumeData)}\n\nFORM FIELDS:\n${JSON.stringify(request.fields)}` }
-      ];
+        const messages = [
+          { role: "system", content: FIELD_MAP_PROMPT },
+          { role: "user", content: `RESUME DATA:\n${JSON.stringify(request.resumeData)}\n\nFORM FIELDS:\n${JSON.stringify(request.fields)}` }
+        ];
 
-      const result = await callAI(messages, openaiApiKey, provider);
-      sendResponse({ success: true, mappings: result.mappings || [] });
-    } catch (error) {
-        sendResponse({ success: false, error: error.message });
-      }
-    });
-    return true; 
-  }
-
-  if (request.action === "answerQuestion") {
-    chrome.storage.local.get(['openaiApiKey']).then(async (result) => {
-      try {
-        if (!result.openaiApiKey) throw new Error("API Key not found");
-        const prompt = "Generate a professional 2-3 sentence answer. Be honest. Never fabricate data not present in resume.";
-        const userContent = `QUESTION: ${request.question}\nRESUME: ${JSON.stringify(request.resumeData)}`;
-        const responseText = await callOpenAI([
-          { role: "system", content: prompt },
-          { role: "user", content: userContent }
-        ], result.openaiApiKey, "gpt-4o-mini", false);
-        
-        sendResponse({ success: true, answer: responseText });
+        const result = await callAI(messages, openaiApiKey, provider);
+        sendResponse({ success: true, mappings: result.mappings || [] });
       } catch (error) {
         sendResponse({ success: false, error: error.message });
       }
-    });
-    return true; 
+    })();
+    return true;
+  }
+
+  // ── Answer Question ─────────────────────────────────────────────────────────
+  if (request.action === "answerQuestion") {
+    (async () => {
+      try {
+        const { openaiApiKey, aiProvider } = await chrome.storage.local.get(['openaiApiKey', 'aiProvider']);
+        if (!openaiApiKey) {
+          sendResponse({ success: false, error: "API key not found." });
+          return;
+        }
+        const provider = aiProvider || 'gemini';
+
+        const prompt = "Generate a professional 2-3 sentence answer. Be honest. Never fabricate data not present in resume. Return JSON: { \"answer\": \"...\" }";
+        const userContent = `QUESTION: ${request.question}\nRESUME: ${JSON.stringify(request.resumeData)}`;
+
+        const result = await callAI([
+          { role: "system", content: prompt },
+          { role: "user", content: userContent }
+        ], openaiApiKey, provider);
+
+        sendResponse({ success: true, answer: result.answer || "" });
+      } catch (error) {
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true;
   }
 });

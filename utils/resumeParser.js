@@ -1,8 +1,10 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 
-// Use CDN for the worker to avoid complex bundler configurations for Chrome Extensions
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+// Bundle the worker locally instead of loading from CDN.
+// Chrome Extension CSP blocks external script loading.
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 export async function extractText(file) {
   const fileExtension = file.name.split('.').pop().toLowerCase();

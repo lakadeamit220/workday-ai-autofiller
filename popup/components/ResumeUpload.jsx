@@ -8,7 +8,7 @@ export default function ResumeUpload({ apiKey, onParsed }) {
 
   const onDrop = useCallback(async (acceptedFiles) => {
     if (!apiKey) {
-      setError('Please save your OpenAI API key first.');
+      setError('Please save your API key first.');
       return;
     }
     const file = acceptedFiles[0];
@@ -19,7 +19,7 @@ export default function ResumeUpload({ apiKey, onParsed }) {
 
     try {
       const rawText = await extractText(file);
-      
+
       chrome.runtime.sendMessage({ action: "parseResume", text: rawText }, (response) => {
         setLoading(false);
         if (chrome.runtime.lastError || !response || !response.success) {
@@ -45,17 +45,30 @@ export default function ResumeUpload({ apiKey, onParsed }) {
   });
 
   return (
-        {status === 'done' && (
-          <span className="text-sm text-green-400">✓ {fileName} parsed successfully!</span>
-        )}
+    <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+      <h2 className="text-sm font-semibold mb-3 text-slate-800">Upload Resume</h2>
 
-        {status === 'error' && (
-          <div className="text-sm text-red-400">
-            Error processing {fileName}. <br/>
-            <span className="text-xs">{errorMsg}</span>
+      <div
+        {...getRootProps()}
+        className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+          isDragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+        }`}
+      >
+        <input {...getInputProps()} />
+        {loading ? (
+          <div className="text-blue-600 text-sm font-medium animate-pulse">
+            Parsing with AI... this may take 10-20 seconds.
           </div>
+        ) : isDragActive ? (
+          <p className="text-blue-600 text-sm font-medium">Drop it here!</p>
+        ) : (
+          <p className="text-slate-500 text-sm">
+            Click or drag <span className="font-semibold text-slate-700">PDF/DOCX</span> here
+          </p>
         )}
       </div>
+
+      {error && <p className="text-red-500 text-xs mt-2 font-medium">{error}</p>}
     </div>
   );
 }
