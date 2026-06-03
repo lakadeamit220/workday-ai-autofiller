@@ -6,6 +6,7 @@ import AutofillControls from './components/AutofillControls';
 
 function App() {
   const [apiKey, setApiKey] = useState('');
+  const [provider, setProvider] = useState('gemini');
   const [resumeData, setResumeData] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ step: 0, total: 0, status: '' });
@@ -13,8 +14,9 @@ function App() {
 
   // Load saved data on mount
   useEffect(() => {
-    chrome.storage.local.get(['openaiApiKey', 'resumeData'], (result) => {
+    chrome.storage.local.get(['openaiApiKey', 'aiProvider', 'resumeData'], (result) => {
       if (result.openaiApiKey) setApiKey(result.openaiApiKey);
+      if (result.aiProvider) setProvider(result.aiProvider);
       if (result.resumeData) setResumeData(result.resumeData);
     });
 
@@ -65,14 +67,14 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-full text-slate-200">
-      <header className="p-4 border-b border-slate-700 bg-slate-800 flex items-center gap-3">
-        <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-bold">🚀</div>
-        <h1 className="text-lg font-bold">Workday AI Autofiller</h1>
+    <div className="flex flex-col h-full text-slate-800 bg-slate-50">
+      <header className="p-4 border-b border-slate-200 bg-white flex items-center gap-3 shadow-sm">
+        <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-xl shadow-sm">💼</div>
+        <h1 className="text-lg font-semibold text-slate-800 tracking-tight">Workday AI Autofiller</h1>
       </header>
       
       <main className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
-        <ApiKeyInput apiKey={apiKey} setApiKey={setApiKey} />
+        <ApiKeyInput apiKey={apiKey} setApiKey={setApiKey} provider={provider} setProvider={setProvider} />
         
         <ResumeUpload 
           apiKey={apiKey} 

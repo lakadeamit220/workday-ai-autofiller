@@ -48,79 +48,126 @@ Return ONLY valid JSON with this exact structure:
 }
 `;
 
-async function callOpenAI(messages, apiKey, model = "gpt-4o-mini", jsonMode = false) {
-  let attempt = 0;
-  let delay = 1000;
-  
-  while (attempt < 3) {
+async function callAI(messages, apiKey, provider, retries = 3) {
+  for (let i = 0; i < retries; i++) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model,
+      let url, headers, body;
+
+      if (provider === 'gemini') {
+        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        headers = { 'Content-Type': 'application/json' };
+        
+        const systemPrompt = messages.find(m => m.role === 'system')?.content || '';
+        const userPrompt = messages.find(m => m.role === 'user')?.content || '';
+        
+        body = JSON.stringify({
+          system_instruction: { parts: { text: systemPrompt } },
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          generationConfig: { responseMimeType: "application/json" }
+        });
+      } else if (provider === 'groq') {
+        url = 'https://api.groq.com/openai/v1/chat/completions';
+        headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        };
+        body = JSON.stringify({
+          model: 'llama3-70b-8192',
           messages,
-          response_format: jsonMode ? { type: "json_object" } : undefined
-        }),
+          response_format: { type: "json_object" }
+        });
+      } else {
+        // Default to OpenAI
+        url = 'https://api.openai.com/v1/chat/completions';
+        headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        };
+        body = JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages,
+          response_format: { type: "json_object" }
+        });
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
         signal: controller.signal
       });
       clearTimeout(timeoutId);
 
-      if (response.status === 401) throw new Error("Invalid API Key");
-      if (response.status === 429) throw new Error("Rate limit exceeded");
-      if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`API Error: ${response.status} - ${JSON.stringify(errorData)}`);
+      }
 
       const data = await response.json();
-      return data.choices[0].message.content;
-    } catch (error) {
-      attempt++;
-      if (attempt >= 3 || error.message === "Invalid API Key") throw error;
-      await new Promise(r => setTimeout(r, delay));
-      delay *= 2;
+      let content = "";
+      
+      if (provider === 'gemini') {
+        content = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      } else {
+        content = data.choices?.[0]?.message?.content || '{}';
+      }
+      
+      return JSON.parse(content);
+    } catch (e) {
+      console.warn(`AI request failed (attempt ${i + 1}/${retries}):`, e);
+      if (i === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
     }
   }
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "parseResume") {
-    chrome.storage.local.get(['openaiApiKey']).then(async (result) => {
+    (async () => {
       try {
-        if (!result.openaiApiKey) throw new Error("API Key not found. Please set it in the popup.");
-        const responseText = await callOpenAI([
+        const { openaiApiKey, aiProvider } = await chrome.storage.local.get(['openaiApiKey', 'aiProvider']);
+        if (!openaiApiKey) {
+          sendResponse({ success: false, error: "API key not found. Please save it in the popup." });
+          return;
+        }
+        const provider = aiProvider || 'gemini';
+
+        const messages = [
           { role: "system", content: RESUME_PARSE_PROMPT },
           { role: "user", content: request.text }
-        ], result.openaiApiKey, "gpt-4o-mini", true);
-        
-        const parsedJSON = JSON.parse(responseText);
-        await chrome.storage.local.set({ resumeData: parsedJSON });
-        sendResponse({ success: true, data: parsedJSON });
+        ];
+
+        const result = await callAI(messages, openaiApiKey, provider);
+        await chrome.storage.local.set({ resumeData: result });
+        sendResponse({ success: true, data: result });
       } catch (error) {
         sendResponse({ success: false, error: error.message });
       }
-    });
+    })();
     return true; 
   }
 
   if (request.action === "mapFields") {
     chrome.storage.local.get(['openaiApiKey']).then(async (result) => {
       try {
-        if (!result.openaiApiKey) throw new Error("API Key not found");
-        
-        const userContent = `FIELDS: ${JSON.stringify(request.fields)}\nRESUME: ${JSON.stringify(request.resumeData)}`;
-        const responseText = await callOpenAI([
-          { role: "system", content: FIELD_MAP_PROMPT },
-          { role: "user", content: userContent }
-        ], result.openaiApiKey, "gpt-4o-mini", true);
-        
-        const parsed = JSON.parse(responseText);
-        sendResponse({ success: true, mappings: parsed.mappings || [] });
-      } catch (error) {
+      const { openaiApiKey, aiProvider } = await chrome.storage.local.get(['openaiApiKey', 'aiProvider']);
+      if (!openaiApiKey) {
+        sendResponse({ success: false, error: "API key not found." });
+        return;
+      }
+      const provider = aiProvider || 'gemini';
+
+      const messages = [
+        { role: "system", content: FIELD_MAP_PROMPT },
+        { role: "user", content: `RESUME DATA:\n${JSON.stringify(request.resumeData)}\n\nFORM FIELDS:\n${JSON.stringify(request.fields)}` }
+      ];
+
+      const result = await callAI(messages, openaiApiKey, provider);
+      sendResponse({ success: true, mappings: result.mappings || [] });
+    } catch (error) {
         sendResponse({ success: false, error: error.message });
       }
     });
